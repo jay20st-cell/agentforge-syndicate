@@ -13,6 +13,9 @@ without network calls and scores them with transparent, repeatable policies.
 - `src/agentforge/execution.py` provides the deterministic runner, evaluator,
   and suite orchestration layer.
 - `src/agentforge/baseline.py` runs the bundled support-agent baseline.
+- `src/agentforge/improvement.py` diagnoses failures, creates candidates,
+  compares suite runs, and applies the promotion policy.
+- `src/agentforge/improvement_demo.py` runs the complete V1-to-V2 loop.
 - `benchmarks/sample.json` is a one-task example fixture.
 - `benchmarks/technical-support.json` contains seven realistic debugging cases.
 - `tests/` verifies models, loading, scoring, aggregation, and repeatability.
@@ -44,6 +47,7 @@ source .venv/bin/activate
 python -m pip install -e '.[dev]'
 pytest
 python -m agentforge.baseline
+python -m agentforge.improvement_demo
 ```
 
 The baseline command prints a deterministic JSON report for the technical
@@ -53,6 +57,7 @@ used only for development and tests.
 ## Current scope
 
 This repository provides deterministic domain models, JSON fixture loading,
-configured execution, exact/keyword evaluation, and suite aggregation. It does
-not implement agent self-improvement, candidate generation, external LLM calls,
-API services, web interfaces, dashboards, or persistence.
+configured execution, exact/keyword evaluation, suite aggregation, structured
+failure diagnosis, deterministic candidate creation, regression analysis, and
+promotion gating. It does not make external LLM calls or provide API services,
+web interfaces, dashboards, or persistence.
