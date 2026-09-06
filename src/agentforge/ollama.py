@@ -19,7 +19,9 @@ DEFAULT_OLLAMA_ENDPOINT = "http://localhost:11434/api/generate"
 class OllamaTransport(Protocol):
     """Small injectable boundary used to generate one response."""
 
-    def generate(self, model: str, prompt: str, timeout: float) -> str:
+    def generate(
+        self, model: str, prompt: str, timeout: float, *, json_mode: bool = False
+    ) -> str:
         """Return the generated text or raise when generation fails."""
 
 
@@ -29,15 +31,18 @@ class UrllibOllamaTransport:
     def __init__(self, endpoint: str = DEFAULT_OLLAMA_ENDPOINT) -> None:
         self.endpoint = endpoint
 
-    def generate(self, model: str, prompt: str, timeout: float) -> str:
-        body = json.dumps(
-            {
-                "model": model,
-                "prompt": prompt,
-                "stream": False,
-                "options": {"temperature": 0},
-            }
-        ).encode("utf-8")
+    def generate(
+        self, model: str, prompt: str, timeout: float, *, json_mode: bool = False
+    ) -> str:
+        payload = {
+            "model": model,
+            "prompt": prompt,
+            "stream": False,
+            "options": {"temperature": 0},
+        }
+        if json_mode:
+            payload["format"] = "json"
+        body = json.dumps(payload).encode("utf-8")
         request = urllib.request.Request(
             self.endpoint,
             data=body,
@@ -130,7 +135,12 @@ class OllamaCandidateImprover(CandidateImprover):
 
             prompt = self._build_prompt(task, baseline_response, diagnosis)
             try:
-                generated = self.transport.generate(self.model, prompt, self.timeout)
+                generated = self.transport.generate(
+                    self.model,
+                    prompt,
+                    self.timeout,
+                    json_mode=evaluation_policy == "json_fields",
+                )
                 if not isinstance(generated, str) or not generated.strip():
                     raise RuntimeError("model returned no non-empty response")
             except Exception as exc:  # A failed proposal must leave V1 intact.
@@ -138,12 +148,9 @@ class OllamaCandidateImprover(CandidateImprover):
                 continue
             if evaluation_policy == "json_fields":
                 try:
-                    proposed_fields = json.loads(generated)
-                except json.JSONDecodeError:
-                    failures.append(f"{task.id}: model response is not valid JSON")
-                    continue
-                if not isinstance(proposed_fields, dict):
-                    failures.append(f"{task.id}: model response is not a JSON object")
+                    proposed_fields = self._parse_json_object(generated)
+                except ValueError as exc:
+                    failures.append(f"{task.id}: {exc}")
                     continue
                 missing_fields = set(diagnosis.missing_requirements)
                 repaired = dict(baseline_object)
@@ -160,6 +167,32 @@ class OllamaCandidateImprover(CandidateImprover):
         configuration = dict(baseline.configuration)
         configuration["responses"] = candidate_responses
         return AgentVersion(baseline.name, self.candidate_version, configuration)
+
+    @staticmethod
+    def _parse_json_object(generated: str) -> dict[str, object]:
+        """Parse a complete JSON object, optionally inside one exact JSON fence."""
+
+        candidate = generated.strip()
+        if candidate.startswith("```json"):
+            lines = candidate.splitlines()
+            if (
+                len(lines) < 3
+                or lines[0].strip() != "```json"
+                or lines[-1].strip() != "```"
+                or any("```" in line for line in lines[1:-1])
+            ):
+                raise ValueError("model response has an invalid JSON code fence")
+            candidate = "\n".join(lines[1:-1]).strip()
+        elif candidate.startswith("```") or candidate.endswith("```"):
+            raise ValueError("model response has an invalid JSON code fence")
+
+        try:
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError as exc:
+            raise ValueError("model response is not valid JSON") from exc
+        if not isinstance(parsed, dict):
+            raise ValueError("model response is not a JSON object")
+        return parsed
 
     def _build_prompt(
         self,

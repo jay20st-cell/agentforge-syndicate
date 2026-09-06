@@ -12,9 +12,11 @@ class RecordingTransport:
     def __init__(self, responses):
         self.responses = list(responses)
         self.prompts = []
+        self.json_modes = []
 
-    def generate(self, model, prompt, timeout):
+    def generate(self, model, prompt, timeout, *, json_mode=False):
         self.prompts.append(prompt)
+        self.json_modes.append(json_mode)
         return self.responses.pop(0)
 
 
@@ -98,6 +100,7 @@ def test_extraction_demo_improves_and_never_sends_expected_values() -> None:
     )
     assert run["comparison"].regressed_tasks == ()
     assert run["decision"].promoted is True
+    assert transport.json_modes == [True, True]
     assert run["candidate_agent"].configuration["responses"]["invoice-northwind"] == run[
         "baseline_agent"
     ].configuration["responses"]["invoice-northwind"]
@@ -125,12 +128,37 @@ def test_json_repair_only_replaces_diagnosed_fields() -> None:
     }
 
 
+def test_fenced_json_patch_parses_safely() -> None:
+    repaired, transport, improver = _repair(
+        '{"invoice_id":"INV-9","amount":"wrong"}',
+        '  ```json\n{"amount":"50.00 USD"}\n```  ',
+    )
+
+    assert json.loads(repaired)["amount"] == "50.00 USD"
+    assert transport.json_modes == [True]
+    assert improver.generation_failures == ()
+
+
 def test_malformed_json_proposal_retains_baseline_safely() -> None:
     baseline = '{"invoice_id":"INV-9","amount":"wrong"}'
     repaired, _, improver = _repair(baseline, "not JSON")
 
     assert repaired == baseline
     assert "model response is not valid JSON" in improver.generation_failures[0]
+
+
+def test_prose_wrapped_json_array_and_scalar_are_rejected() -> None:
+    baseline = '{"invoice_id":"INV-9","amount":"wrong"}'
+    proposals = (
+        'Here is the patch: {"amount":"50.00 USD"}',
+        '[{"amount":"50.00 USD"}]',
+        '"50.00 USD"',
+    )
+
+    for proposal in proposals:
+        repaired, _, improver = _repair(baseline, proposal)
+        assert repaired == baseline
+        assert improver.generation_failures
 
 
 def test_partial_json_proposal_preserves_unrepaired_baseline_values() -> None:

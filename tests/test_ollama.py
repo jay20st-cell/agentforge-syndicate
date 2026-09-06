@@ -9,17 +9,19 @@ from agentforge.ollama import OllamaCandidateImprover, UrllibOllamaTransport
 class FakeTransport:
     def __init__(self, responses: list[str | Exception]) -> None:
         self.responses = responses
-        self.calls: list[tuple[str, str, float]] = []
+        self.calls: list[tuple[str, str, float, bool]] = []
 
-    def generate(self, model: str, prompt: str, timeout: float) -> str:
-        self.calls.append((model, prompt, timeout))
+    def generate(
+        self, model: str, prompt: str, timeout: float, *, json_mode: bool = False
+    ) -> str:
+        self.calls.append((model, prompt, timeout, json_mode))
         response = self.responses.pop(0)
         if isinstance(response, Exception):
             raise response
         return response
 
 
-def test_http_transport_sets_temperature_zero(monkeypatch) -> None:
+def test_http_transport_sets_temperature_zero_without_changing_text_format(monkeypatch) -> None:
     captured = {}
 
     class Response:
@@ -40,6 +42,29 @@ def test_http_transport_sets_temperature_zero(monkeypatch) -> None:
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
     assert UrllibOllamaTransport().generate("model", "prompt", 7) == "ok"
     assert captured["body"]["options"] == {"temperature": 0}
+    assert "format" not in captured["body"]
+
+
+def test_http_transport_uses_json_mode_when_requested(monkeypatch) -> None:
+    captured = {}
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def read(self):
+            return b'{"response":"{}"}'
+
+    def fake_urlopen(request, timeout):
+        captured.update(json.loads(request.data.decode("utf-8")))
+        return Response()
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    UrllibOllamaTransport().generate("model", "prompt", 7, json_mode=True)
+    assert captured["format"] == "json"
 
 
 def _run(tasks, responses, generated):
@@ -185,3 +210,4 @@ def test_prompt_is_structured_and_requests_response_only() -> None:
     assert payload["task_prompt"] == "Do it"
     assert payload["baseline_response"] == "start"
     assert payload["missing_requirements"] == ["needed"]
+    assert result[4].calls[0][3] is False

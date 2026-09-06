@@ -89,7 +89,10 @@ For `json_fields` failures, the model receives the original prompt and missing
 field names and returns only a repair object. AgentForge ignores keys outside
 that diagnosed set and overlays accepted fields on the parsed V1 object, so
 already-correct fields cannot regress. Malformed proposals retain V1 unchanged.
-Local HTTP generation uses temperature zero for more reproducible proposals.
+Local HTTP generation uses temperature zero for more reproducible proposals and
+requests Ollama JSON mode for extraction patches. Complete plain JSON objects
+and exact `json` code fences are accepted; prose-wrapped or non-object output is
+rejected without guessing.
 
 ## Current scope
 
