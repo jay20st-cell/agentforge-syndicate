@@ -58,7 +58,15 @@ class DeterministicEvaluator(Evaluator):
         expected = task.expected_output.strip()
         passed = actual == expected
         details = "exact match" if passed else f"expected {expected!r}; received {actual!r}"
-        return EvaluationResult(task.id, agent.version, float(passed), passed, details)
+        return EvaluationResult(
+            task.id,
+            agent.version,
+            float(passed),
+            passed,
+            details,
+            (expected,) if passed else (),
+            () if passed else (expected,),
+        )
 
     def _required_keywords(
         self, task: BenchmarkTask, agent: AgentVersion, output: str
@@ -84,7 +92,9 @@ class DeterministicEvaluator(Evaluator):
         )
         if missing:
             details += f"; missing: {', '.join(missing)}"
-        return EvaluationResult(task.id, agent.version, score, passed, details)
+        return EvaluationResult(
+            task.id, agent.version, score, passed, details, tuple(matched), tuple(missing)
+        )
 
 
 class SuiteRunner:
