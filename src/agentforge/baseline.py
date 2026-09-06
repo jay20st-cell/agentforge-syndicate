@@ -12,13 +12,12 @@ from agentforge.models import AgentVersion
 
 BASELINE_RESPONSES = {
     "http-bearer-auth": "Inspect the Authorization header for the Bearer scheme and verify token expiry.",
-    "sqlite-database-locked": "Shorten transactions, set a busy timeout, and use WAL for concurrent readers.",
+    "sqlite-database-locked": "Keep transactions short and retry writes after a lock clears.",
     "python-none-attribute": "Trace where None originates, validate the value, then call get only when valid.",
     "dns-resolution-failure": "This is DNS: inspect resolv.conf and use dig against the configured nameserver.",
-    "git-merge-conflict": "Resolve conflict markers, test, stage with git add, and finish with git commit.",
+    "git-merge-conflict": "Inspect conflict markers, resolve each file, then continue the merge.",
     "missing-environment-variable": "The production environment is missing the DATABASE_URL configuration.",
-    # Intentionally incomplete so the bundled suite demonstrates preserved failure detail.
-    "http-timeout-debugging": "Check service health, routing, proxy configuration, and timeout logs.",
+    "http-timeout-debugging": "Check service health and timeout logs before retrying.",
 }
 
 
