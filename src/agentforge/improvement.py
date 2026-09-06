@@ -50,7 +50,7 @@ class FailureDiagnoser:
 
 
 class DeterministicCandidateImprover(CandidateImprover):
-    """Repair only failed configured responses using benchmark expectations."""
+    """Augment failed keyword responses using structured evaluator evidence."""
 
     def __init__(self, candidate_version: str = "2.0.0") -> None:
         self.candidate_version = candidate_version
@@ -72,10 +72,29 @@ class DeterministicCandidateImprover(CandidateImprover):
         if failed_ids != diagnosed_ids:
             raise ValueError("diagnoses must correspond exactly to baseline failures")
 
+        task_by_id = {task.id: task for task in tasks}
+        if any(task_id not in task_by_id for task_id in diagnosed_ids):
+            raise ValueError("diagnosis references an unknown benchmark task")
+
         candidate_responses = dict(responses)
-        for task in tasks:
-            if task.id in failed_ids:
-                candidate_responses[task.id] = task.expected_output
+        for diagnosis in diagnoses:
+            task = task_by_id[diagnosis.task_id]
+            if task.metadata.get("evaluation", "exact_match") != "required_keywords":
+                # Exact matching has no safe repair without an answer key. Fail closed
+                # by retaining the baseline response exactly.
+                continue
+            if not diagnosis.missing_requirements:
+                continue
+            baseline_response = candidate_responses[diagnosis.task_id]
+            if not isinstance(baseline_response, str):
+                raise ValueError(
+                    f"baseline response for task {diagnosis.task_id!r} must be a string"
+                )
+            separator = " " if baseline_response and not baseline_response.endswith((" ", "\n")) else ""
+            additions = ", ".join(diagnosis.missing_requirements)
+            candidate_responses[diagnosis.task_id] = (
+                f"{baseline_response}{separator}Additional checks: {additions}."
+            )
         configuration = dict(baseline.configuration)
         configuration["responses"] = candidate_responses
         return AgentVersion(baseline.name, self.candidate_version, configuration)

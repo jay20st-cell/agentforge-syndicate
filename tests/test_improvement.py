@@ -52,6 +52,52 @@ def test_demo_candidate_is_new_and_only_changes_failed_tasks() -> None:
             assert candidate.configuration["responses"][task_id] == response
 
 
+def test_keyword_improvement_does_not_depend_on_expected_output() -> None:
+    task = BenchmarkTask(
+        "database",
+        "Diagnose a database lock",
+        "UNRELATED ANSWER-KEY SENTINEL",
+        {
+            "category": "database",
+            "evaluation": "required_keywords",
+            "required_keywords": ["transactions", "busy timeout", "wal"],
+        },
+    )
+    baseline = AgentVersion(
+        "support", "1.0.0", {"responses": {"database": "Keep transactions short."}}
+    )
+    suite_runner = SuiteRunner(
+        DeterministicAgentRunner(), DeterministicEvaluator(pass_threshold=1.0)
+    )
+    baseline_result = suite_runner.run((task,), baseline)
+    diagnoses = FailureDiagnoser().diagnose((task,), baseline_result)
+
+    candidate = DeterministicCandidateImprover().improve(
+        baseline, (task,), baseline_result, diagnoses
+    )
+    candidate_result = suite_runner.run((task,), candidate)
+
+    assert candidate_result.results[0].passed is True
+    assert candidate.configuration["responses"]["database"] == (
+        "Keep transactions short. Additional checks: busy timeout, wal."
+    )
+    assert "UNRELATED ANSWER-KEY SENTINEL" not in candidate.configuration["responses"]["database"]
+
+
+def test_failed_exact_match_is_left_unchanged() -> None:
+    task = BenchmarkTask("exact", "p", "secret answer")
+    baseline = AgentVersion("a", "1", {"responses": {"exact": "unsupported guess"}})
+    suite_runner = SuiteRunner(DeterministicAgentRunner(), DeterministicEvaluator())
+    result = suite_runner.run((task,), baseline)
+    diagnoses = FailureDiagnoser().diagnose((task,), result)
+
+    candidate = DeterministicCandidateImprover("2").improve(
+        baseline, (task,), result, diagnoses
+    )
+
+    assert candidate.configuration["responses"]["exact"] == "unsupported guess"
+
+
 def test_demo_improves_failures_keeps_passing_scores_and_promotes() -> None:
     run = run_demo()
     baseline = run["baseline_result"]

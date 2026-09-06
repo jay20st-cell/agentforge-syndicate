@@ -58,6 +58,8 @@ used only for development and tests.
 
 This repository provides deterministic domain models, JSON fixture loading,
 configured execution, exact/keyword evaluation, suite aggregation, structured
-failure diagnosis, deterministic candidate creation, regression analysis, and
-promotion gating. It does not make external LLM calls or provide API services,
-web interfaces, dashboards, or persistence.
+failure diagnosis, deterministic candidate creation from missing keyword
+evidence, regression analysis, and promotion gating. Candidate creation does
+not consume benchmark expected outputs; unsupported exact-match failures remain
+unchanged. The project does not make external LLM calls or provide API
+services, web interfaces, dashboards, or persistence.
