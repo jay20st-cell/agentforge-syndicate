@@ -3,7 +3,7 @@ import json
 from agentforge.execution import DeterministicAgentRunner, DeterministicEvaluator, SuiteRunner
 from agentforge.improvement import FailureDiagnoser, PromotionPolicy, compare_suites
 from agentforge.models import AgentVersion, BenchmarkTask
-from agentforge.ollama import OllamaCandidateImprover
+from agentforge.ollama import OllamaCandidateImprover, UrllibOllamaTransport
 
 
 class FakeTransport:
@@ -17,6 +17,29 @@ class FakeTransport:
         if isinstance(response, Exception):
             raise response
         return response
+
+
+def test_http_transport_sets_temperature_zero(monkeypatch) -> None:
+    captured = {}
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def read(self):
+            return b'{"response":"ok"}'
+
+    def fake_urlopen(request, timeout):
+        captured["body"] = json.loads(request.data.decode("utf-8"))
+        captured["timeout"] = timeout
+        return Response()
+
+    monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    assert UrllibOllamaTransport().generate("model", "prompt", 7) == "ok"
+    assert captured["body"]["options"] == {"temperature": 0}
 
 
 def _run(tasks, responses, generated):

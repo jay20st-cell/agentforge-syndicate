@@ -80,10 +80,16 @@ business-document extraction with the same sequence: deterministic V1
 evaluation, field-safe failure diagnosis, optional local Ollama proposal, the
 same benchmark rerun, regression analysis, and the existing deterministic
 PROMOTE/REJECT policy. Passing responses remain untouched. For extraction,
-Ollama receives the original document prompt, baseline response, score,
-category, critical flag, and missing field names; it does not receive the
-canonical `expected_output` answer object. Live model improvement is
-environment-dependent and is not claimed here without a local run.
+Ollama receives the original document prompt, score, category, critical flag,
+and missing field names; it does not receive the baseline object or canonical
+`expected_output` answer object. Live model improvement is environment-dependent
+and is not claimed here without a local run.
+
+For `json_fields` failures, the model receives the original prompt and missing
+field names and returns only a repair object. AgentForge ignores keys outside
+that diagnosed set and overlays accepted fields on the parsed V1 object, so
+already-correct fields cannot regress. Malformed proposals retain V1 unchanged.
+Local HTTP generation uses temperature zero for more reproducible proposals.
 
 ## Current scope
 

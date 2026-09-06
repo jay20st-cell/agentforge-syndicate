@@ -31,7 +31,12 @@ class UrllibOllamaTransport:
 
     def generate(self, model: str, prompt: str, timeout: float) -> str:
         body = json.dumps(
-            {"model": model, "prompt": prompt, "stream": False}
+            {
+                "model": model,
+                "prompt": prompt,
+                "stream": False,
+                "options": {"temperature": 0},
+            }
         ).encode("utf-8")
         request = urllib.request.Request(
             self.endpoint,
@@ -111,6 +116,18 @@ class OllamaCandidateImprover(CandidateImprover):
             if not diagnosis.missing_requirements:
                 continue
 
+            evaluation_policy = task.metadata.get("evaluation", "exact_match")
+            baseline_object = None
+            if evaluation_policy == "json_fields":
+                try:
+                    baseline_object = json.loads(baseline_response)
+                except json.JSONDecodeError:
+                    failures.append(f"{task.id}: baseline response is not valid JSON")
+                    continue
+                if not isinstance(baseline_object, dict):
+                    failures.append(f"{task.id}: baseline response is not a JSON object")
+                    continue
+
             prompt = self._build_prompt(task, baseline_response, diagnosis)
             try:
                 generated = self.transport.generate(self.model, prompt, self.timeout)
@@ -119,7 +136,25 @@ class OllamaCandidateImprover(CandidateImprover):
             except Exception as exc:  # A failed proposal must leave V1 intact.
                 failures.append(f"{task.id}: {exc}")
                 continue
-            candidate_responses[task.id] = generated
+            if evaluation_policy == "json_fields":
+                try:
+                    proposed_fields = json.loads(generated)
+                except json.JSONDecodeError:
+                    failures.append(f"{task.id}: model response is not valid JSON")
+                    continue
+                if not isinstance(proposed_fields, dict):
+                    failures.append(f"{task.id}: model response is not a JSON object")
+                    continue
+                missing_fields = set(diagnosis.missing_requirements)
+                repaired = dict(baseline_object)
+                repaired.update(
+                    (key, value)
+                    for key, value in proposed_fields.items()
+                    if key in missing_fields
+                )
+                candidate_responses[task.id] = json.dumps(repaired)
+            else:
+                candidate_responses[task.id] = generated
 
         self.generation_failures = tuple(failures)
         configuration = dict(baseline.configuration)
@@ -132,9 +167,8 @@ class OllamaCandidateImprover(CandidateImprover):
         baseline_response: str,
         diagnosis: FailureDiagnosis,
     ) -> str:
-        evidence = {
+        evidence: dict[str, object] = {
             "task_prompt": task.prompt,
-            "baseline_response": baseline_response,
             "failure_diagnosis": {
                 "task_id": diagnosis.task_id,
                 "category": diagnosis.category,
@@ -150,14 +184,20 @@ class OllamaCandidateImprover(CandidateImprover):
             # criticality are the validated, safe metadata fields above.
             "safe_metadata": {},
         }
-        output_instruction = (
-            "Return ONLY a valid JSON object, with no Markdown fences, preamble, or commentary. "
-            if task.metadata.get("evaluation", "exact_match") == "json_fields"
-            else "Return ONLY the improved response, with no preamble or commentary. "
-        )
+        if task.metadata.get("evaluation", "exact_match") == "json_fields":
+            output_instruction = (
+                "Return ONLY a valid JSON object containing proposed values for the "
+                "diagnosed missing_requirements field names. Do not include any other "
+                "keys. Infer values from task_prompt. Use no Markdown fences, preamble, "
+                "or commentary. "
+            )
+        else:
+            evidence["baseline_response"] = baseline_response
+            output_instruction = (
+                "Return ONLY the improved response, with no preamble or commentary. "
+            )
         return (
-            f"{output_instruction}Retain useful parts of the baseline response. Address the diagnosed "
-            "missing requirements. Do not invent unrelated information. Produce "
-            "concise, task-appropriate output.\n\n"
+            f"{output_instruction}Address the diagnosed missing requirements. "
+            "Do not invent unrelated information. Produce concise, task-appropriate output.\n\n"
             f"INPUT:\n{json.dumps(evidence, sort_keys=True)}"
         )

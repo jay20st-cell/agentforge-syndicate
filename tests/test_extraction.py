@@ -1,10 +1,11 @@
 import json
 
 from agentforge.benchmarks import load_benchmark
-from agentforge.execution import DeterministicEvaluator
+from agentforge.execution import DeterministicAgentRunner, DeterministicEvaluator, SuiteRunner
 from agentforge.extraction_demo import run_demo
 from agentforge.improvement import FailureDiagnoser, PromotionPolicy, compare_suites
-from agentforge.models import AgentVersion, BenchmarkTask, SuiteResult
+from agentforge.models import AgentVersion, BenchmarkTask, EvaluationResult, SuiteResult
+from agentforge.ollama import OllamaCandidateImprover
 
 
 class RecordingTransport:
@@ -28,6 +29,20 @@ def _task(expected='{"invoice_id":"INV-9","amount":"50.00 USD"}'):
             "category": "invoice",
         },
     )
+
+
+def _repair(baseline_response, model_response):
+    task = _task()
+    runner = SuiteRunner(DeterministicAgentRunner(), DeterministicEvaluator(1.0))
+    baseline = AgentVersion("a", "1", {"responses": {task.id: baseline_response}})
+    baseline_result = runner.run((task,), baseline)
+    diagnoses = FailureDiagnoser().diagnose((task,), baseline_result)
+    transport = RecordingTransport([model_response])
+    improver = OllamaCandidateImprover(
+        "fake", transport=transport, candidate_version="2"
+    )
+    candidate = improver.improve(baseline, (task,), baseline_result, diagnoses)
+    return candidate.configuration["responses"][task.id], transport, improver
 
 
 def test_valid_json_fields_score_individually_by_name() -> None:
@@ -88,30 +103,79 @@ def test_extraction_demo_improves_and_never_sends_expected_values() -> None:
     ].configuration["responses"]["invoice-northwind"]
     for task, prompt in zip((tasks[1], tasks[2]), transport.prompts):
         assert "expected_output" not in prompt
+        payload = json.loads(prompt.split("INPUT:\n", 1)[1])
+        assert "baseline_response" not in payload
         for value in json.loads(task.expected_output).values():
             # Values present in the source document are necessarily recoverable from
-            # task_prompt; this checks that no evaluator-only answer payload is sent.
-            assert prompt.count(str(value)) <= task.prompt.count(str(value)) + json.loads(prompt.split("INPUT:\n", 1)[1])["baseline_response"].count(str(value))
+            # task_prompt; no evaluator-only answer payload is sent.
+            assert prompt.count(str(value)) <= task.prompt.count(str(value))
+
+
+def test_json_repair_only_replaces_diagnosed_fields() -> None:
+    repaired, _, _ = _repair(
+        '{"invoice_id":"INV-9","amount":"wrong","note":"keep exactly"}',
+        '{"invoice_id":"ATTACK","amount":"50.00 USD","note":"overwrite","extra":1}',
+    )
+
+    parsed = json.loads(repaired)
+    assert parsed == {
+        "invoice_id": "INV-9",
+        "amount": "50.00 USD",
+        "note": "keep exactly",
+    }
+
+
+def test_malformed_json_proposal_retains_baseline_safely() -> None:
+    baseline = '{"invoice_id":"INV-9","amount":"wrong"}'
+    repaired, _, improver = _repair(baseline, "not JSON")
+
+    assert repaired == baseline
+    assert "model response is not valid JSON" in improver.generation_failures[0]
+
+
+def test_partial_json_proposal_preserves_unrepaired_baseline_values() -> None:
+    task = BenchmarkTask(
+        "invoice",
+        "Invoice INV-9 is for Acme and totals 50.00 USD.",
+        '{"invoice_id":"INV-9","customer":"Acme","amount":"50.00 USD"}',
+        {
+            "evaluation": "json_fields",
+            "required_fields": ["invoice_id", "customer", "amount"],
+        },
+    )
+    baseline_text = '{"invoice_id":"INV-9","customer":"wrong","amount":"also wrong"}'
+    runner = SuiteRunner(DeterministicAgentRunner(), DeterministicEvaluator(1.0))
+    baseline = AgentVersion("a", "1", {"responses": {task.id: baseline_text}})
+    result = runner.run((task,), baseline)
+    diagnosis = FailureDiagnoser().diagnose((task,), result)
+    candidate = OllamaCandidateImprover(
+        "fake", transport=RecordingTransport(['{"customer":"Acme"}']), candidate_version="2"
+    ).improve(baseline, (task,), result, diagnosis)
+
+    assert json.loads(candidate.configuration["responses"][task.id]) == {
+        "invoice_id": "INV-9",
+        "customer": "Acme",
+        "amount": "also wrong",
+    }
 
 
 def test_extraction_regression_causes_reject() -> None:
-    tasks = load_benchmark("benchmarks/structured-extraction.json")
-    expected = [json.loads(task.expected_output) for task in tasks]
-    transport = RecordingTransport(
-        [json.dumps(expected[1]), json.dumps({**expected[2], "priority": "low"})]
+    baseline = SuiteResult(
+        "1",
+        (
+            EvaluationResult("gain", "1", 0.5, False),
+            EvaluationResult("loss", "1", 1.0, True),
+        ),
     )
-    run = run_demo(model="fake", transport=transport)
-    candidate = run["candidate_result"]
-    # Compare against a deliberately stronger reference on one task to exercise
-    # the unchanged promotion gate's regression rule with extraction results.
-    responses = dict(run["baseline_agent"].configuration["responses"])
-    responses["support-ticket-access"] = json.dumps(expected[2])
-    from agentforge.execution import DeterministicAgentRunner, SuiteRunner
-    stronger = SuiteRunner(DeterministicAgentRunner(), DeterministicEvaluator(1.0)).run(
-        tasks, AgentVersion("structured-extraction-agent", "strong", {"responses": responses})
+    candidate = SuiteResult(
+        "2",
+        (
+            EvaluationResult("gain", "2", 1.0, True),
+            EvaluationResult("loss", "2", 0.5, False),
+        ),
     )
-    comparison = compare_suites(stronger, candidate)
-    decision = PromotionPolicy().decide(stronger, candidate, comparison, ())
+    comparison = compare_suites(baseline, candidate)
+    decision = PromotionPolicy().decide(baseline, candidate, comparison, ())
 
-    assert "support-ticket-access" in comparison.regressed_tasks
+    assert comparison.regressed_tasks == ("loss",)
     assert decision.promoted is False
