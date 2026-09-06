@@ -22,6 +22,7 @@ from agentforge.models import (
     RegressionAnalysis,
     SuiteResult,
 )
+from agentforge.ollama import OllamaCandidateImprover
 
 __all__ = [
     "AgentRunner",
@@ -35,6 +36,7 @@ __all__ = [
     "Evaluator",
     "FailureDiagnoser",
     "FailureDiagnosis",
+    "OllamaCandidateImprover",
     "PromotionPolicy",
     "PromotionDecision",
     "RegressionAnalysis",

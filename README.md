@@ -16,6 +16,10 @@ without network calls and scores them with transparent, repeatable policies.
 - `src/agentforge/improvement.py` diagnoses failures, creates candidates,
   compares suite runs, and applies the promotion policy.
 - `src/agentforge/improvement_demo.py` runs the complete V1-to-V2 loop.
+- `src/agentforge/ollama.py` optionally proposes failed-response repairs with a
+  configurable local Ollama model and no additional runtime dependency.
+- `src/agentforge/ollama_demo.py` runs the same benchmark and deterministic gate
+  around the optional model proposal step.
 - `benchmarks/sample.json` is a one-task example fixture.
 - `benchmarks/technical-support.json` contains seven realistic debugging cases.
 - `tests/` verifies models, loading, scoring, aggregation, and repeatability.
@@ -48,6 +52,8 @@ python -m pip install -e '.[dev]'
 pytest
 python -m agentforge.baseline
 python -m agentforge.improvement_demo
+# Requires a local Ollama server and model:
+AGENTFORGE_OLLAMA_MODEL=llama3.2 python -m agentforge.ollama_demo
 ```
 
 The baseline command prints a deterministic JSON report for the technical
@@ -61,5 +67,10 @@ configured execution, exact/keyword evaluation, suite aggregation, structured
 failure diagnosis, deterministic candidate creation from missing keyword
 evidence, regression analysis, and promotion gating. Candidate creation does
 not consume benchmark expected outputs; unsupported exact-match failures remain
-unchanged. The project does not make external LLM calls or provide API
-services, web interfaces, dashboards, or persistence.
+unchanged. The deterministic improver remains the reproducible reference
+strategy. An optional local Ollama strategy may propose repairs for diagnosed
+keyword failures, while passing responses and unsafe exact-match failures remain
+unchanged. Both strategies use the same deterministic evaluator, regression
+analysis, and PROMOTE/REJECT policy: AI proposes, deterministic evidence
+decides. Model success is environment-dependent and is not assumed. The project
+does not provide API services, web interfaces, dashboards, or persistence.
