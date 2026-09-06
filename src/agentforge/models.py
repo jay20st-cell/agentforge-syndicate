@@ -68,6 +68,40 @@ class EvaluationResult:
             raise ValueError("score must be between 0.0 and 1.0")
         if not isinstance(self.passed, bool):
             raise ValueError("passed must be a boolean")
+        if not isinstance(self.details, str):
+            raise ValueError("details must be a string")
+
+
+@dataclass(frozen=True, slots=True)
+class SuiteResult:
+    """Aggregate and per-task results from one benchmark suite run."""
+
+    agent_version: str
+    results: tuple[EvaluationResult, ...]
+    total: int = field(init=False)
+    passed: int = field(init=False)
+    failed: int = field(init=False)
+    aggregate_score: float = field(init=False)
+
+    def __post_init__(self) -> None:
+        _require_text(self.agent_version, "agent_version")
+        results = tuple(self.results)
+        if any(not isinstance(result, EvaluationResult) for result in results):
+            raise ValueError("results must contain only EvaluationResult objects")
+        if any(result.agent_version != self.agent_version for result in results):
+            raise ValueError("all results must match agent_version")
+
+        total = len(results)
+        passed = sum(result.passed for result in results)
+        object.__setattr__(self, "results", results)
+        object.__setattr__(self, "total", total)
+        object.__setattr__(self, "passed", passed)
+        object.__setattr__(self, "failed", total - passed)
+        object.__setattr__(
+            self,
+            "aggregate_score",
+            sum(result.score for result in results) / total if total else 0.0,
+        )
 
 
 @dataclass(frozen=True, slots=True)
