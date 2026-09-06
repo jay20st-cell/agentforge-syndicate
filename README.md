@@ -1,110 +1,167 @@
 # AgentForge Mini
 
-AgentForge Mini is a small, deterministic system for benchmarking versioned
-agents during the Syndicate by Maximor hackathon. It runs configured responses
-without network calls and scores them with transparent, repeatable policies.
+**AI proposes. AgentForge verifies.**
+
+AgentForge Mini is a test-and-improve governance loop for autonomous agents, built for the **Syndicate by Maximor** hackathon. Instead of trusting that a new prompt or model response is "better," AgentForge measures a baseline, diagnoses failures, proposes a candidate, reruns the **same benchmark**, checks regressions, and only promotes the candidate when the evidence supports it.
+
+## Why this exists
+
+Agent improvement is easy to demo and surprisingly easy to fake. A score can rise because the benchmark changed, because an answer key leaked into the repair step, or because one task improved while another quietly regressed.
+
+AgentForge treats improvement as a controlled promotion decision:
+
+```mermaid
+flowchart LR
+    A[Agent V1] --> B[Fixed Benchmark]
+    B --> C[Deterministic Evaluator]
+    C --> D[Structured Failure Diagnosis]
+    D --> E[Candidate Improver]
+    E --> F[Agent V2]
+    F --> G[Same Benchmark]
+    G --> H[Regression Analysis]
+    H --> I{Promotion Gate}
+    I -->|better, no regressions, no critical failures| J[PROMOTE]
+    I -->|otherwise| K[REJECT]
+```
+
+The local LLM is only a **proposal mechanism**. Evaluation and promotion remain deterministic.
+
+## Live results
+
+Verified locally with **Llama 3.1 8B via Ollama**:
+
+| Domain | V1 | V2 | Regressions | Decision |
+|---|---:|---:|---:|---|
+| Technical support | **0.7119** | **1.0000** | **0** | **PROMOTE** |
+| Structured extraction | **0.7500** | **0.8750** | **0** | **PROMOTE** |
+
+The final local test suite contains **55 passing tests**.
+
+AgentForge also demonstrated the failure paths the gate is meant to catch:
+
+- An unconstrained extraction candidate fell from **0.7500 to 0.5000**, introduced **2 regressions**, and was **REJECTED**.
+- Malformed JSON proposals were discarded safely, V1 was retained, and the candidate was **REJECTED** because it did not improve.
+
+Those failures are not hidden demo debris. They are evidence that promotion is conditional rather than ceremonial.
+
+## Two domains, one governance loop
+
+### 1. Technical support
+
+Seven debugging/support tasks cover HTTP auth, SQLite locking, Python errors, DNS, Git conflicts, environment variables, and HTTP timeouts.
+
+The baseline starts at **4/7 passed, 0.7119 aggregate**. Failure diagnosis exposes missing requirements, the local model proposes repaired responses, and AgentForge reruns the same suite. The verified live candidate reached **7/7, 1.0000**, with zero regressions.
+
+### 2. Structured business extraction
+
+Four tasks cover an invoice, purchase order, support ticket, and shipment record. The evaluator scores required JSON fields individually.
+
+The baseline starts at **0.7500**. The model receives the original document plus the names of fields that were wrong or missing, but **never the canonical expected values**. The verified live candidate reached **0.8750** with zero regressions and was promoted.
+
+## Benchmark-integrity safeguards
+
+AgentForge explicitly defends against "improvement" that is really benchmark leakage:
+
+- `BenchmarkTask.expected_output` is not sent to the model during candidate generation.
+- Required-keyword repairs are based on structured missing-requirement evidence.
+- Exact-match failures fail closed when a safe repair would require exposing the answer key.
+- `json_fields` diagnoses expose **field names only**, never canonical field values.
+- For structured extraction, the model sees the original source document and diagnosed field names, not the baseline JSON object or expected answer object.
+- Extraction repairs are **monotonic by construction**: only diagnosed fields may be overlaid; already-correct fields are preserved exactly.
+- Extra model keys are ignored.
+- Malformed, ambiguous, array, scalar, or prose-wrapped JSON proposals are rejected rather than guessed into shape.
+- Model/network failures retain the baseline response rather than fabricating improvement.
+
+## Promotion policy
+
+A candidate is promoted only when all of the following hold:
+
+1. Candidate aggregate score is strictly higher than baseline.
+2. Regression count is zero.
+3. Candidate has zero critical failures.
+
+Otherwise AgentForge returns `REJECT` with a human-readable reason.
 
 ## Architecture
 
-- `src/agentforge/models.py` contains immutable benchmark, agent version,
-  evaluation result, and promotion decision value objects.
-- `src/agentforge/benchmarks.py` loads and validates task collections from JSON.
-- `src/agentforge/interfaces.py` defines abstract runner and evaluator contracts.
-- `src/agentforge/execution.py` provides the deterministic runner, evaluator,
-  and suite orchestration layer.
-- `src/agentforge/baseline.py` runs the bundled support-agent baseline.
-- `src/agentforge/improvement.py` diagnoses failures, creates candidates,
-  compares suite runs, and applies the promotion policy.
-- `src/agentforge/improvement_demo.py` runs the complete V1-to-V2 loop.
-- `src/agentforge/ollama.py` optionally proposes failed-response repairs with a
-  configurable local Ollama model and no additional runtime dependency.
-- `src/agentforge/ollama_demo.py` runs the same benchmark and deterministic gate
-  around the optional model proposal step.
-- `src/agentforge/extraction_demo.py` applies that same loop to structured
-  business-document extraction.
-- `benchmarks/sample.json` is a one-task example fixture.
-- `benchmarks/technical-support.json` contains seven realistic debugging cases.
-- `benchmarks/structured-extraction.json` contains four invoice, order, support,
-  and shipment extraction cases.
-- `tests/` verifies models, loading, scoring, aggregation, and repeatability.
+- `src/agentforge/models.py` — immutable benchmark, agent, evaluation, diagnosis, regression, and promotion models.
+- `src/agentforge/benchmarks.py` — JSON benchmark loading and validation.
+- `src/agentforge/execution.py` — deterministic runner plus `exact_match`, `required_keywords`, and `json_fields` evaluation.
+- `src/agentforge/improvement.py` — diagnosis, deterministic reference improver, regression analysis, and promotion policy.
+- `src/agentforge/ollama.py` — optional local Ollama-backed candidate improver with fail-closed behavior.
+- `src/agentforge/ollama_demo.py` — live technical-support improvement loop.
+- `src/agentforge/extraction_demo.py` — live second-domain extraction loop.
+- `benchmarks/technical-support.json` — seven support/debugging tasks.
+- `benchmarks/structured-extraction.json` — four business-document extraction tasks.
+- `tests/` — benchmark integrity, evaluation, failure handling, regression, and promotion coverage.
 
-The benchmark format is a JSON object with a `tasks` array. Each task requires
-string fields named `id`, `prompt`, and `expected_output`; optional `metadata`
-must be a JSON object. Task IDs must be unique within a file.
+## Built with Agent Orchestrator
 
-Evaluation defaults to `exact_match`, which compares stripped, case-sensitive
-text. A task can instead set `metadata.evaluation` to `required_keywords` and
-provide a non-empty `metadata.required_keywords` string list. Keyword matching
-is case-insensitive substring matching, and its normalized score is the matched
-keyword count divided by the required keyword count. `DeterministicEvaluator`
-uses an explicit pass threshold (default `0.8`), with scores equal to the
-threshold passing.
+AO was used throughout the build rather than added at the end as decorative provenance. The implementation progressed through isolated worker branches and reviewed pull requests:
 
-The `json_fields` policy parses both outputs as JSON objects and scores the
-field names listed in `metadata.required_fields` individually using exact JSON
-value equality. Failure evidence contains only unmatched field names—never the
-canonical values stored in `expected_output`. Malformed model JSON safely
-scores zero rather than interrupting the suite.
+- **PR #1** — foundation, benchmark models, loader, interfaces.
+- **PR #2** — deterministic execution/evaluation and calibrated baseline.
+- **PR #3** — failure diagnosis, candidate improvement, regression analysis, promotion gate; review caught and removed answer-key leakage.
+- **PR #4** — optional local Ollama candidate generation with fail-closed network/model behavior.
+- **PR #5** — second-domain structured extraction, monotonic JSON repair, structured output, and live cross-domain proof.
 
-`DeterministicAgentRunner` reads outputs from the `responses` mapping in an
-`AgentVersion` configuration. `SuiteRunner` preserves each `EvaluationResult`
-in benchmark order and reports total, passed, failed, and mean aggregate score.
-Exact-match failures retain expected/actual details, keyword failures retain
-missing keywords, and JSON-field failures retain field names only.
+This history matters because the development process itself exercised the same principle as the product: proposed work was reviewed, challenged, corrected, and only then promoted to `main`.
 
-## Local setup
+## Quick start
 
-Python 3.11 or newer is required. From the repository root:
+Python 3.11+ is required.
 
 ```bash
-python -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -e '.[dev]'
 pytest
-python -m agentforge.baseline
-python -m agentforge.improvement_demo
-# Requires a local Ollama server and model:
-AGENTFORGE_OLLAMA_MODEL=llama3.2 python -m agentforge.ollama_demo
-# Same architecture, second domain; requires the named local model:
-python -m agentforge.extraction_demo --model llama3.1-8b:latest
 ```
 
-The baseline command prints a deterministic JSON report for the technical
-support suite. The runtime package has no third-party dependencies. Pytest is
-used only for development and tests.
+Run the deterministic reference loop:
 
-## Second-domain generality
+```bash
+python -m agentforge.improvement_demo
+```
 
-AgentForge Mini governs both technical-support answers and structured
-business-document extraction with the same sequence: deterministic V1
-evaluation, field-safe failure diagnosis, optional local Ollama proposal, the
-same benchmark rerun, regression analysis, and the existing deterministic
-PROMOTE/REJECT policy. Passing responses remain untouched. For extraction,
-Ollama receives the original document prompt, score, category, critical flag,
-and missing field names; it does not receive the baseline object or canonical
-`expected_output` answer object. Live model improvement is environment-dependent
-and is not claimed here without a local run.
+Run the live local-model technical-support loop:
 
-For `json_fields` failures, the model receives the original prompt and missing
-field names and returns only a repair object. AgentForge ignores keys outside
-that diagnosed set and overlays accepted fields on the parsed V1 object, so
-already-correct fields cannot regress. Malformed proposals retain V1 unchanged.
-Local HTTP generation uses temperature zero for more reproducible proposals and
-requests Ollama JSON mode for extraction patches. Complete plain JSON objects
-and exact `json` code fences are accepted; prose-wrapped or non-object output is
-rejected without guessing.
+```bash
+python -m agentforge.ollama_demo \
+  --model llama3.1-8b:latest \
+  --timeout 60
+```
+
+Run the live structured-extraction loop:
+
+```bash
+python -m agentforge.extraction_demo \
+  --model llama3.1-8b:latest \
+  --timeout 120
+```
+
+A local Ollama server and the named model are required for the live-model demos. The deterministic evaluation and test paths do not require an external API or third-party runtime dependency.
+
+## Example verified outcome
+
+```text
+TECHNICAL SUPPORT
+V1  0.7119  (4/7)
+        ↓ local Llama proposal
+V2  1.0000  (7/7)
+regressions: none
+PROMOTE
+
+STRUCTURED EXTRACTION
+V1  0.7500
+        ↓ local Llama proposal
+V2  0.8750
+regressions: none
+PROMOTE
+```
 
 ## Current scope
 
-This repository provides deterministic domain models, JSON fixture loading,
-configured execution, exact/keyword/JSON-field evaluation, suite aggregation, structured
-failure diagnosis, deterministic candidate creation from missing keyword
-evidence, regression analysis, and promotion gating. Candidate creation does
-not consume benchmark expected outputs; unsupported exact-match failures remain
-unchanged. The deterministic improver remains the reproducible reference
-strategy. An optional local Ollama strategy may propose repairs for diagnosed
-keyword failures, while passing responses and unsafe exact-match failures remain
-unchanged. Both strategies use the same deterministic evaluator, regression
-analysis, and PROMOTE/REJECT policy: AI proposes, deterministic evidence
-decides. Model success is environment-dependent and is not assumed. The project
-does not provide API services, web interfaces, dashboards, or persistence.
+AgentForge Mini is intentionally a focused hackathon prototype. It provides benchmarking, structured diagnosis, optional local-model proposal generation, candidate comparison, regression detection, and deterministic promotion gating. It does not yet provide persistence, a production API, authentication, distributed execution, or a full web dashboard.
+
+**AgentForge doesn't ask whether an agent feels better. It tests whether it actually became better.**
