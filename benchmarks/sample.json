@@ -1,0 +1,12 @@
+{
+  "tasks": [
+    {
+      "id": "arithmetic-addition",
+      "prompt": "What is 2 + 2? Reply with only the number.",
+      "expected_output": "4",
+      "metadata": {
+        "category": "arithmetic"
+      }
+    }
+  ]
+}
