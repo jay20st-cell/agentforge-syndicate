@@ -150,9 +150,13 @@ class OllamaCandidateImprover(CandidateImprover):
             # criticality are the validated, safe metadata fields above.
             "safe_metadata": {},
         }
+        output_instruction = (
+            "Return ONLY a valid JSON object, with no Markdown fences, preamble, or commentary. "
+            if task.metadata.get("evaluation", "exact_match") == "json_fields"
+            else "Return ONLY the improved response, with no preamble or commentary. "
+        )
         return (
-            "Return ONLY the improved response, with no preamble or commentary. "
-            "Retain useful parts of the baseline response. Address the diagnosed "
+            f"{output_instruction}Retain useful parts of the baseline response. Address the diagnosed "
             "missing requirements. Do not invent unrelated information. Produce "
             "concise, task-appropriate output.\n\n"
             f"INPUT:\n{json.dumps(evidence, sort_keys=True)}"

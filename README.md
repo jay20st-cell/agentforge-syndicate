@@ -20,8 +20,12 @@ without network calls and scores them with transparent, repeatable policies.
   configurable local Ollama model and no additional runtime dependency.
 - `src/agentforge/ollama_demo.py` runs the same benchmark and deterministic gate
   around the optional model proposal step.
+- `src/agentforge/extraction_demo.py` applies that same loop to structured
+  business-document extraction.
 - `benchmarks/sample.json` is a one-task example fixture.
 - `benchmarks/technical-support.json` contains seven realistic debugging cases.
+- `benchmarks/structured-extraction.json` contains four invoice, order, support,
+  and shipment extraction cases.
 - `tests/` verifies models, loading, scoring, aggregation, and repeatability.
 
 The benchmark format is a JSON object with a `tasks` array. Each task requires
@@ -36,10 +40,17 @@ keyword count divided by the required keyword count. `DeterministicEvaluator`
 uses an explicit pass threshold (default `0.8`), with scores equal to the
 threshold passing.
 
+The `json_fields` policy parses both outputs as JSON objects and scores the
+field names listed in `metadata.required_fields` individually using exact JSON
+value equality. Failure evidence contains only unmatched field names—never the
+canonical values stored in `expected_output`. Malformed model JSON safely
+scores zero rather than interrupting the suite.
+
 `DeterministicAgentRunner` reads outputs from the `responses` mapping in an
 `AgentVersion` configuration. `SuiteRunner` preserves each `EvaluationResult`
 in benchmark order and reports total, passed, failed, and mean aggregate score.
-Failures retain expected/actual values or missing keyword details.
+Exact-match failures retain expected/actual details, keyword failures retain
+missing keywords, and JSON-field failures retain field names only.
 
 ## Local setup
 
@@ -54,16 +65,30 @@ python -m agentforge.baseline
 python -m agentforge.improvement_demo
 # Requires a local Ollama server and model:
 AGENTFORGE_OLLAMA_MODEL=llama3.2 python -m agentforge.ollama_demo
+# Same architecture, second domain; requires the named local model:
+python -m agentforge.extraction_demo --model llama3.1-8b:latest
 ```
 
 The baseline command prints a deterministic JSON report for the technical
 support suite. The runtime package has no third-party dependencies. Pytest is
 used only for development and tests.
 
+## Second-domain generality
+
+AgentForge Mini governs both technical-support answers and structured
+business-document extraction with the same sequence: deterministic V1
+evaluation, field-safe failure diagnosis, optional local Ollama proposal, the
+same benchmark rerun, regression analysis, and the existing deterministic
+PROMOTE/REJECT policy. Passing responses remain untouched. For extraction,
+Ollama receives the original document prompt, baseline response, score,
+category, critical flag, and missing field names; it does not receive the
+canonical `expected_output` answer object. Live model improvement is
+environment-dependent and is not claimed here without a local run.
+
 ## Current scope
 
 This repository provides deterministic domain models, JSON fixture loading,
-configured execution, exact/keyword evaluation, suite aggregation, structured
+configured execution, exact/keyword/JSON-field evaluation, suite aggregation, structured
 failure diagnosis, deterministic candidate creation from missing keyword
 evidence, regression analysis, and promotion gating. Candidate creation does
 not consume benchmark expected outputs; unsupported exact-match failures remain

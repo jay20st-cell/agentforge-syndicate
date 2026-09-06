@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping, Sequence
 from typing import Any
 
@@ -29,7 +30,7 @@ class DeterministicAgentRunner(AgentRunner):
 
 
 class DeterministicEvaluator(Evaluator):
-    """Evaluate exact matches or required keywords with an explicit threshold."""
+    """Evaluate supported deterministic policies with an explicit threshold."""
 
     def __init__(self, pass_threshold: float = 0.8) -> None:
         if isinstance(pass_threshold, bool) or not isinstance(pass_threshold, (int, float)):
@@ -49,6 +50,8 @@ class DeterministicEvaluator(Evaluator):
             return self._exact_match(task, agent, output)
         if policy == "required_keywords":
             return self._required_keywords(task, agent, output)
+        if policy == "json_fields":
+            return self._json_fields(task, agent, output)
         raise ValueError(f"unsupported evaluation policy: {policy!r}")
 
     def _exact_match(
@@ -92,6 +95,59 @@ class DeterministicEvaluator(Evaluator):
         )
         if missing:
             details += f"; missing: {', '.join(missing)}"
+        return EvaluationResult(
+            task.id, agent.version, score, passed, details, tuple(matched), tuple(missing)
+        )
+
+    def _json_fields(
+        self, task: BenchmarkTask, agent: AgentVersion, output: str
+    ) -> EvaluationResult:
+        required_fields = task.metadata.get("required_fields")
+        if (
+            not isinstance(required_fields, Sequence)
+            or isinstance(required_fields, (str, bytes))
+            or not required_fields
+            or any(
+                not isinstance(field, str) or not field.strip()
+                for field in required_fields
+            )
+        ):
+            raise ValueError("json_fields policy needs a non-empty string list")
+        fields = [field.strip() for field in required_fields]
+        if len(fields) != len(set(fields)):
+            raise ValueError("json_fields required_fields must be unique")
+
+        try:
+            expected = json.loads(task.expected_output)
+        except json.JSONDecodeError as exc:
+            raise ValueError("json_fields expected_output must be valid JSON") from exc
+        if not isinstance(expected, dict):
+            raise ValueError("json_fields expected_output must be a JSON object")
+        absent_expected = [field for field in fields if field not in expected]
+        if absent_expected:
+            raise ValueError("json_fields expected_output lacks a required field")
+
+        try:
+            actual = json.loads(output)
+        except (json.JSONDecodeError, TypeError):
+            actual = None
+        if not isinstance(actual, dict):
+            matched: list[str] = []
+        else:
+            matched = [
+                field
+                for field in fields
+                if field in actual and actual[field] == expected[field]
+            ]
+        missing = [field for field in fields if field not in matched]
+        score = len(matched) / len(fields)
+        passed = score >= self.pass_threshold
+        details = (
+            f"matched {len(matched)}/{len(fields)} required JSON fields; "
+            f"threshold={self.pass_threshold:.2f}"
+        )
+        if missing:
+            details += f"; unmatched fields: {', '.join(missing)}"
         return EvaluationResult(
             task.id, agent.version, score, passed, details, tuple(matched), tuple(missing)
         )

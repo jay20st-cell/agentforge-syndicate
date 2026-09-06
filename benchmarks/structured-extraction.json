@@ -1,0 +1,28 @@
+{
+  "tasks": [
+    {
+      "id": "invoice-northwind",
+      "prompt": "Extract the requested fields as a JSON object. Invoice INV-2048 was issued by Alder Peak Components to Northwind Garden Supply. The total due is 1842.75 USD, payable by 2026-10-15. Requested fields: invoice_id, customer, amount, due_date.",
+      "expected_output": "{\"invoice_id\":\"INV-2048\",\"customer\":\"Northwind Garden Supply\",\"amount\":\"1842.75 USD\",\"due_date\":\"2026-10-15\"}",
+      "metadata": {"category": "invoice", "evaluation": "json_fields", "required_fields": ["invoice_id", "customer", "amount", "due_date"]}
+    },
+    {
+      "id": "purchase-order-copperline",
+      "prompt": "Return the requested purchase-order details as JSON. Purchase order PO-7719, dated 2026-08-28, names Copperline Office Works as supplier. It requests 24 ergonomic task chairs for a total of 9360.00 GBP. Requested fields: po_number, supplier, quantity, total_amount.",
+      "expected_output": "{\"po_number\":\"PO-7719\",\"supplier\":\"Copperline Office Works\",\"quantity\":24,\"total_amount\":\"9360.00 GBP\"}",
+      "metadata": {"category": "purchase-order", "evaluation": "json_fields", "required_fields": ["po_number", "supplier", "quantity", "total_amount"]}
+    },
+    {
+      "id": "support-ticket-access",
+      "prompt": "Extract a JSON support record from this note: Ticket SR-55301 was opened by Amara Dube of Kestrel Health. Priority is high. The issue is categorized as account_access after repeated MFA rejection. Requested fields: ticket_id, requester, priority, category.",
+      "expected_output": "{\"ticket_id\":\"SR-55301\",\"requester\":\"Amara Dube\",\"priority\":\"high\",\"category\":\"account_access\"}",
+      "metadata": {"category": "support-record", "evaluation": "json_fields", "required_fields": ["ticket_id", "requester", "priority", "category"]}
+    },
+    {
+      "id": "shipment-record-lumina",
+      "prompt": "Produce JSON for the requested shipment fields. Sales order SO-88014 for Lumina Retail left the Harare warehouse on 2026-09-03 with SwiftRoute Freight. Tracking number SRF-9021176. Delivery status is in_transit. Requested fields: order_id, carrier, tracking_number.",
+      "expected_output": "{\"order_id\":\"SO-88014\",\"carrier\":\"SwiftRoute Freight\",\"tracking_number\":\"SRF-9021176\"}",
+      "metadata": {"category": "shipment", "evaluation": "json_fields", "required_fields": ["order_id", "carrier", "tracking_number"]}
+    }
+  ]
+}
