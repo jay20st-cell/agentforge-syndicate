@@ -1,0 +1,73 @@
+{
+  "tasks": [
+    {
+      "id": "http-bearer-auth",
+      "prompt": "An API returns HTTP 401 although the access token is valid. Give the first request detail to verify.",
+      "expected_output": "Verify the Authorization header uses the Bearer scheme and check token expiry.",
+      "metadata": {
+        "category": "http-auth",
+        "evaluation": "required_keywords",
+        "required_keywords": ["authorization header", "bearer", "expiry"]
+      }
+    },
+    {
+      "id": "sqlite-database-locked",
+      "prompt": "A Python service intermittently reports 'database is locked' with SQLite. Suggest practical mitigations.",
+      "expected_output": "Keep transactions short, configure a busy timeout, and enable WAL mode where appropriate.",
+      "metadata": {
+        "category": "sqlite",
+        "evaluation": "required_keywords",
+        "required_keywords": ["transactions", "busy timeout", "wal"]
+      }
+    },
+    {
+      "id": "python-none-attribute",
+      "prompt": "Python raises AttributeError: 'NoneType' object has no attribute 'get'. State what to inspect and how to guard it.",
+      "expected_output": "Trace why the value is None, then validate it before calling get.",
+      "metadata": {
+        "category": "python",
+        "evaluation": "required_keywords",
+        "required_keywords": ["none", "validate", "get"]
+      }
+    },
+    {
+      "id": "dns-resolution-failure",
+      "prompt": "A host is reachable by IP but not by hostname. Name the likely subsystem and two useful checks.",
+      "expected_output": "Investigate DNS; check resolv.conf and query the configured nameserver with dig.",
+      "metadata": {
+        "category": "networking",
+        "evaluation": "required_keywords",
+        "required_keywords": ["dns", "resolv.conf", "dig", "nameserver"]
+      }
+    },
+    {
+      "id": "git-merge-conflict",
+      "prompt": "A git merge stops on conflicts. Describe the safe resolution sequence.",
+      "expected_output": "Inspect conflict markers, edit and test the files, git add them, then git commit.",
+      "metadata": {
+        "category": "git",
+        "evaluation": "required_keywords",
+        "required_keywords": ["conflict markers", "test", "git add", "git commit"]
+      }
+    },
+    {
+      "id": "missing-environment-variable",
+      "prompt": "An application works locally but fails in production because DATABASE_URL is absent. Give the diagnosis.",
+      "expected_output": "The production environment is missing the DATABASE_URL configuration.",
+      "metadata": {
+        "category": "configuration",
+        "evaluation": "exact_match"
+      }
+    },
+    {
+      "id": "http-timeout-debugging",
+      "prompt": "An outbound HTTP request times out. List checks that distinguish service, routing, and proxy configuration problems.",
+      "expected_output": "Check service health, routing and firewall reachability, proxy settings, and connect/read timeout logs.",
+      "metadata": {
+        "category": "networking",
+        "evaluation": "required_keywords",
+        "required_keywords": ["service health", "routing", "firewall", "proxy", "timeout"]
+      }
+    }
+  ]
+}
